@@ -1,5 +1,6 @@
 package com.raywenderlich.placebook2.ui
 
+import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -7,10 +8,13 @@ import android.location.Location
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.viewModels
 import androidx.appcompat.app.ActionBarDrawerToggle
 import androidx.core.app.ActivityCompat
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.google.android.gms.common.GooglePlayServicesNotAvailableException
+import com.google.android.gms.common.GooglePlayServicesRepairableException
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
@@ -23,9 +27,12 @@ import com.google.android.gms.maps.model.*
 
 import com.google.android.libraries.places.api.Places
 import com.google.android.libraries.places.api.model.Place
+import com.google.android.libraries.places.api.model.RectangularBounds
 import com.google.android.libraries.places.api.net.FetchPhotoRequest
 import com.google.android.libraries.places.api.net.FetchPlaceRequest
 import com.google.android.libraries.places.api.net.PlacesClient
+import com.google.android.libraries.places.widget.Autocomplete
+import com.google.android.libraries.places.widget.model.AutocompleteActivityMode
 import com.raywenderlich.placebook2.adapter.BookmarkInfoWindowAdapter
 import com.raywenderlich.placebook2.R
 import com.raywenderlich.placebook2.adapter.BookmarkListAdapter
@@ -135,6 +142,14 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
         map.setOnInfoWindowClickListener {
             handleInfoWindowClick(it)
         }
+
+        databinding.mainMapView.fab.setOnClickListener {
+            searchAtCurrentLocation()
+        }
+
+        map.setOnMapLongClickListener { latLng ->
+            newBookmark(latLng)
+        }
     }
 
     private fun requestLocationPermissions() {
@@ -157,6 +172,30 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
             } else {
                 Log.e(TAG, "Location permission denied")
             }
+        }
+    }
+
+    override fun onActivityResult(
+        requestCode: Int,
+        resultCode: Int,
+        data: Intent?
+    ) {
+        super.onActivityResult(requestCode, resultCode, data)
+        // 1
+        when (requestCode) {
+            AUTOCOMPLETE_REQUEST_CODE ->
+                // 2
+                if (resultCode == Activity.RESULT_OK && data != null) {
+                    // 3
+                    val place = Autocomplete.getPlaceFromIntent(data)
+                    // 4
+                    val location = Location("")
+                    location.latitude = place.latLng?.latitude ?: 0.0
+                    location.longitude = place.latLng?.longitude ?: 0.0
+                    updateMapToLocation(location)
+                    // 5
+                    displayPoiGetPhotoStep(place)
+                }
         }
     }
 
@@ -202,7 +241,8 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
             Place.Field.PHONE_NUMBER,
             Place.Field.PHOTO_METADATAS,
             Place.Field.ADDRESS,
-            Place.Field.LAT_LNG
+            Place.Field.LAT_LNG,
+            Place.Field.TYPES
         )
 
         //3
@@ -276,12 +316,14 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
             .position(bookmark.location)
             .title(bookmark.name)
             .snippet(bookmark.phone)
-            .icon(BitmapDescriptorFactory.defaultMarker(
-                BitmapDescriptorFactory.HUE_AZURE))
+            .icon(bookmark.categoryResourceId?.let {
+                BitmapDescriptorFactory.fromResource(it)
+            })
             .alpha(0.8f))
-        marker.tag = bookmark
 
+        marker.tag = bookmark
         bookmark.id?.let { markers.put(it, marker) }
+
         return marker
     }
 
@@ -301,6 +343,15 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
                     bookmarkListAdapter.setBookmarkData(it)
                 }
             })
+    }
+
+    private fun  newBookmark(latLng: LatLng) {
+        GlobalScope.launch {
+            val bookmarkId = mapsViewModel.addBookmark(latLng)
+            bookmarkId?.let {
+                startBookmarkDetails(it)
+            }
+        }
     }
 
     private fun startBookmarkDetails(bookmarkId: Long) {
@@ -351,6 +402,35 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
 
     }
 
+    private fun searchAtCurrentLocation() {
+        // 1
+        val placeFields = listOf(
+            Place.Field.ID,
+            Place.Field.NAME,
+            Place.Field.PHONE_NUMBER,
+            Place.Field.PHOTO_METADATAS,
+            Place.Field.LAT_LNG,
+            Place.Field.ADDRESS,
+            Place.Field.TYPES)
+        // 2
+        val bounds =
+            RectangularBounds.newInstance(map.projection.visibleRegion.latLngBounds)
+        try {
+            // 3
+            val intent = Autocomplete.IntentBuilder(
+                AutocompleteActivityMode.OVERLAY, placeFields)
+                .setLocationBias(bounds)
+                .build(this)
+            // 4
+            startActivityForResult(intent, AUTOCOMPLETE_REQUEST_CODE)
+        } catch (e: GooglePlayServicesRepairableException) {
+            Toast.makeText(this, "Problems Searching",
+                Toast.LENGTH_LONG).show()
+        } catch (e: GooglePlayServicesNotAvailableException) {
+            Toast.makeText(this, "Problems Searching. Google Play Not available", Toast.LENGTH_LONG).show()
+        }
+    }
+
 
     companion object {
 
@@ -358,6 +438,8 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
 
         private const val REQUEST_LOCATION = 1
         private const val TAG = "MapsActivity"
+
+        private const val AUTOCOMPLETE_REQUEST_CODE = 2
     }
 
     class PlaceInfo(val place: Place? = null, val image: Bitmap? = null)

@@ -36,12 +36,16 @@ class BookmarkListAdapter(
         return ViewHolder(binding, mapsActivity)
     }
 
-    override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        bookmarkData?.let { list->
-            val bookmarkViewData = list[position]
-            holder.binding.root.tag = bookmarkViewData
-            holder.binding.bookmarkData = bookmarkViewData
-            holder.binding.bookmarkIcon.setImageResource(R.drawable.ic_other)
+    override fun onBindViewHolder(holder: ViewHolder,
+                                  position: Int) {
+
+        val bookmarkData = bookmarkData ?: return
+        val bookmarkViewData = bookmarkData[position]
+
+        holder.binding.root.tag = bookmarkViewData
+        holder.binding.bookmarkData = bookmarkViewData
+        bookmarkViewData.categoryResourceId?.let {
+            holder.binding.bookmarkIcon.setImageResource(it)
         }
     }
 
